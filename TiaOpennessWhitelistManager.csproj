@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+	<PropertyGroup>
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<AnalysisMode>Recommended</AnalysisMode>
+		<Deterministic>true</Deterministic>
+		<AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+
+		<!-- AOT/trim -->
+		<PublishAot>true</PublishAot>
+		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+		<InvariantGlobalization>true</InvariantGlobalization>
+
+		<RootNamespace>TiaOpennessWhitelistManager</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.9.0-preview.1" />
+	</ItemGroup>
+</Project>
