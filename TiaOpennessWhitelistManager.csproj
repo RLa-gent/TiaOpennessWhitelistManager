@@ -8,10 +8,13 @@
 		<Deterministic>true</Deterministic>
 		<AllowUnsafeBlocks>false</AllowUnsafeBlocks>
 
-		<!-- AOT/trim -->
+		<!-- Single-file native AOT -->
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
 		<PublishAot>true</PublishAot>
 		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
 		<InvariantGlobalization>true</InvariantGlobalization>
+		<StripSymbols>true</StripSymbols>
+		<OptimizationPreference>Size</OptimizationPreference>
 
 		<RootNamespace>TiaOpennessWhitelistManager</RootNamespace>
 	</PropertyGroup>

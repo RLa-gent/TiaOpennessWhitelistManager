@@ -35,6 +35,14 @@ public sealed partial class TiaOpennessWhitelistPipeService : BackgroundService
             new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
             PipeAccessRights.ReadWrite,
             AccessControlType.Allow));
+        // Ensure the admin/owner has full control so the creating process can always manage the pipe.
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+
+        const int maxConsecutiveFailures = 5;
+        int consecutiveFailures = 0;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -50,6 +58,8 @@ public sealed partial class TiaOpennessWhitelistPipeService : BackgroundService
                     0, // default inBufferSize
                     0, // default outBufferSize
                     pipeSecurity);
+
+                consecutiveFailures = 0; // pipe created successfully
 
                 await server.WaitForConnectionAsync(stoppingToken);
 
@@ -75,11 +85,34 @@ public sealed partial class TiaOpennessWhitelistPipeService : BackgroundService
             {
                 break;
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                consecutiveFailures++;
+                LogPipeAccessDenied(_logger, PipeName, ex);
+
+                if (consecutiveFailures >= maxConsecutiveFailures)
+                {
+                    LogPipeGaveUp(_logger, PipeName, maxConsecutiveFailures);
+                    return;
+                }
+
+                // Exponential backoff: 2s, 4s, 8s, 16s, ...
+                int delayMs = 1000 * (1 << consecutiveFailures);
+                await Task.Delay(delayMs, stoppingToken);
+            }
             catch (Exception ex)
             {
+                consecutiveFailures++;
                 LogPipeError(_logger, ex);
-                // Brief delay to prevent log spamming if the pipe fails to initialize
-                await Task.Delay(1000, stoppingToken);
+
+                if (consecutiveFailures >= maxConsecutiveFailures)
+                {
+                    LogPipeGaveUp(_logger, PipeName, maxConsecutiveFailures);
+                    return;
+                }
+
+                int delayMs = 1000 * (1 << consecutiveFailures);
+                await Task.Delay(delayMs, stoppingToken);
             }
         }
 
@@ -106,4 +139,10 @@ public sealed partial class TiaOpennessWhitelistPipeService : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Named pipe error.")]
     static partial void LogPipeError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Access denied creating pipe '{PipeName}'. Is another instance already running, or is this process not running as Administrator?")]
+    static partial void LogPipeAccessDenied(ILogger logger, string pipeName, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Named pipe '{PipeName}' failed {FailureCount} times consecutively. Giving up — the pipe service is now disabled. Kill the other instance or restart as Administrator.")]
+    static partial void LogPipeGaveUp(ILogger logger, string pipeName, int failureCount);
 }

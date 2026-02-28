@@ -59,7 +59,21 @@ try {
     }
 }
 catch [System.TimeoutException] {
-    Write-Error "Timed out waiting for '$pipeName'. Is TiaOpennessWhitelistManager running as Administrator?"
+    Write-Host ''
+    Write-Host '========================================================================' -ForegroundColor Red
+    Write-Host '  ERROR: Could not connect to TiaOpennessWhitelistManager'               -ForegroundColor Red
+    Write-Host '========================================================================' -ForegroundColor Red
+    Write-Host ''
+    Write-Host "  Timed out after $($timeoutMs / 1000)s waiting for named pipe '$pipeName'."
+    Write-Host ''
+    Write-Host '  The TiaOpennessWhitelistManager service must be started BEFORE building.'
+    Write-Host '  Please make sure that:'
+    Write-Host '    1. TiaOpennessWhitelistManager.exe is running'               -ForegroundColor Yellow
+    Write-Host '    2. It was started as Administrator (right-click -> Run as Administrator)' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '  Once the service is running, rebuild your project to retry.'
+    Write-Host '========================================================================' -ForegroundColor Red
+    Write-Host ''
     exit 1
 }
 catch {
