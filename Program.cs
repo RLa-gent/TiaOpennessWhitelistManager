@@ -4,6 +4,7 @@
 /// </summary>
 
 using System.Globalization;
+using System.Net.Sockets;
 using System.Security.Principal;
 using TiaOpennessWhitelistManager;
 
@@ -33,47 +34,65 @@ if (!IsRunningAsAdmin())
 
 try
 {
-    int port = args.Length > 0 && int.TryParse(args[0], out int p) ? p : 51234;
-    await StartServerAsync(port);
-}
-catch (IOException ex) when (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase))
-{
-    Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.WriteLine($"WARNING: Port {GetPortFromException(ex)} is already in use.");
-    Console.ResetColor();
-
-    if (Environment.UserInteractive)
+    if (args.Contains("--pipe-only", StringComparer.OrdinalIgnoreCase))
     {
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  [1] Enter a different port for the MCP HTTP transport");
-        Console.WriteLine("  [2] Continue with named pipe only (no HTTP/MCP)");
-        Console.WriteLine("  [Q] Quit");
-        Console.Write("Choice: ");
+        Console.WriteLine("Starting in named-pipe-only mode (--pipe-only flag).");
+        await StartPipeOnlyAsync();
+        return;
+    }
 
-        switch (Console.ReadLine()?.Trim().ToUpperInvariant())
+    int port = args.Length > 0 && int.TryParse(args[0], out int p) ? p : 51234;
+
+    // Pre-check port before building the host so a Windows Service doesn't crash mid-startup
+    if (!IsPortAvailable(port))
+    {
+        Console.WriteLine($"WARNING: Port {port} is already in use.");
+
+        if (Environment.UserInteractive)
         {
-            case "1":
-                Console.Write("Enter port number: ");
-                if (int.TryParse(Console.ReadLine()?.Trim(), out int newPort) && newPort is > 0 and <= 65535)
-                {
-                    await StartServerAsync(newPort);
-                }
-                else
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Invalid port number.");
-                    Console.ResetColor();
-                }
-                break;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine();
+            Console.WriteLine("Options:");
+            Console.WriteLine("  [1] Enter a different port for the MCP HTTP transport");
+            Console.WriteLine("  [2] Continue with named pipe only (no HTTP/MCP)");
+            Console.WriteLine("  [Q] Quit");
+            Console.ResetColor();
+            Console.Write("Choice: ");
 
-            case "2":
-                await StartPipeOnlyAsync();
-                break;
+            switch (Console.ReadLine()?.Trim().ToUpperInvariant())
+            {
+                case "1":
+                    Console.Write("Enter port number: ");
+                    if (int.TryParse(Console.ReadLine()?.Trim(), out int newPort) && newPort is > 0 and <= 65535)
+                    {
+                        await StartServerAsync(newPort);
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("Invalid port number.");
+                        Console.ResetColor();
+                    }
+                    break;
 
-            default:
-                return;
+                case "2":
+                    await StartPipeOnlyAsync();
+                    break;
+
+                default:
+                    return;
+            }
         }
+        else
+        {
+            // Running as a Windows Service — fall back to pipe-only mode automatically
+            Console.WriteLine("Falling back to named-pipe-only mode.");
+            await StartPipeOnlyAsync();
+        }
+    }
+    else
+    {
+        await StartServerAsync(port);
     }
 }
 catch (Exception ex)
@@ -95,6 +114,8 @@ catch (Exception ex)
 static async Task StartServerAsync(int port)
 {
     var builder = WebApplication.CreateBuilder();
+
+    builder.Host.UseWindowsService();
 
     builder.Services.AddCors(options =>
     {
@@ -118,8 +139,8 @@ static async Task StartServerAsync(int port)
     app.MapMcp();
 
     Console.WriteLine($"Starting MCP server on http://localhost:{port} + named pipe...");
-    app.Run($"http://localhost:{port}");
-    await Task.CompletedTask;
+    app.Urls.Add($"http://localhost:{port}");
+    await app.RunAsync();
 }
 
 /// <summary>
@@ -130,6 +151,7 @@ static async Task StartPipeOnlyAsync()
     Console.WriteLine("Starting in named-pipe-only mode (no HTTP/MCP transport)...");
 
     var builder = Host.CreateApplicationBuilder();
+    builder.Services.AddWindowsService();
     builder.Services.AddHostedService<TiaOpennessWhitelistPipeService>();
 
     using var host = builder.Build();
@@ -137,12 +159,21 @@ static async Task StartPipeOnlyAsync()
 }
 
 /// <summary>
-/// Extracts the port number from the IOException message, or returns "unknown".
+/// Checks whether a TCP port is available for binding on localhost.
 /// </summary>
-static string GetPortFromException(IOException ex)
+static bool IsPortAvailable(int port)
 {
-    var match = System.Text.RegularExpressions.Regex.Match(ex.Message, @":(\d+)");
-    return match.Success ? match.Groups[1].Value : "unknown";
+    try
+    {
+        using var listener = new TcpListener(System.Net.IPAddress.Loopback, port);
+        listener.Start();
+        listener.Stop();
+        return true;
+    }
+    catch (SocketException)
+    {
+        return false;
+    }
 }
 
 /// <summary>

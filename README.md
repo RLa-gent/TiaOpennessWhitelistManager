@@ -25,7 +25,7 @@
 |---|---|
 | 🤖 **MCP Server** | Expose whitelisting as a tool to any MCP-compatible AI agent (GitHub Copilot, Claude, etc.) |
 | 🔧 **Named Pipe** | Lightweight IPC channel for post-build scripts — no HTTP overhead |
-| ⚡ **Native AOT** | Single-file, ahead-of-time compiled binary — instant startup, tiny footprint |
+| ⚡ **Native AOT** | Single-file, ahead-of-time compiled binary — no runtime installation required, instant startup |
 | 🛡️ **Admin Guard** | Refuses to run without elevated privileges — fail-fast, clear error messages |
 | 📜 **Post-Build Script** | Drop-in PowerShell script for automatic whitelisting on every Visual Studio build |
 | 🔄 **Dual Transport** | HTTP/MCP + Named Pipe run side-by-side; graceful fallback to pipe-only mode |
@@ -75,7 +75,7 @@ Grab the latest single-file executable from [**Releases**](https://github.com/RL
 ```powershell
 # Right-click → "Run as Administrator", or from an elevated terminal:
 .\TiaOpennessWhitelistManager.exe          # default port 51234
-.\TiaOpennessWhitelistManager.exe 8080     # custom port
+.\TiaOpennessWhitelistManager.exe 42069    # custom port
 ```
 
 ### Build from Source
@@ -87,6 +87,57 @@ dotnet publish -c Release
 ```
 
 > The published binary lands in `bin/Release/net10.0-windows/win-x64/publish/`.
+
+### 📦 About the Binary Size
+
+The published single-file executable is **~18 MB**. That may seem large for an app with only three source files, but it is expected for Native AOT — here's why:
+
+| What's inside | Why it's there |
+|---|---|
+| .NET runtime (GC, thread pool, type system) | Native AOT bundles the entire runtime — nothing to install on the target machine |
+| ASP.NET Core + Kestrel | Full HTTP server stack required for the MCP transport |
+| `ModelContextProtocol.AspNetCore` | MCP protocol implementation — SSE, JSON-RPC, tool dispatch |
+| `Microsoft.Extensions.Hosting` + Windows Service | Host lifecycle, dependency injection, SCM integration |
+| `System.Security.Cryptography` | SHA-256 hashing for the whitelist entry |
+| `Microsoft.Win32` / pipe ACL code | Registry access and named pipe security descriptors |
+
+> [!TIP]
+> For comparison: a traditional self-contained (non-AOT) .NET 10 publish of the same app would be **~80–100 MB**. A framework-dependent build would be only ~1 MB, but requires .NET 10 installed on the target machine. At 18 MB, Native AOT sits comfortably in between — one file, zero prerequisites, instant startup.
+>
+> Size is already minimised by `<OptimizationPreference>Size</OptimizationPreference>`, `<StripSymbols>true</StripSymbols>`, and `<InvariantGlobalization>true</InvariantGlobalization>` in the project file.
+
+### Install as a Windows Service (auto-start)
+
+From an **elevated** (Administrator) terminal:
+
+```powershell
+# Create the service (adjust the path to your published binary)
+sc.exe create TiaOpennessWhitelist `
+    binPath= "C:\Tools\TiaOpennessWhitelistManager.exe" `
+    start= auto `
+    DisplayName= "TIA Openness Whitelist Manager"
+
+# (Optional) Start parameters
+    binPath= "C:\Tools\TiaOpennessWhitelistManager.exe --"
+# (Optional) Add a description
+sc.exe description TiaOpennessWhitelist "Automatically whitelists executables for Siemens TIA Portal Openness API access."
+
+# Start the service
+sc.exe start TiaOpennessWhitelist
+```
+
+> [!NOTE]
+> The service runs under **Local System** by default, which has Administrator privileges.
+> To pass a custom port, append it to the binary path: `binPath= "C:\Tools\TiaOpennessWhitelistManager.exe 51234"`
+> To skip the MCP HTTP server entirely and run the named pipe only: `binPath= "C:\Tools\TiaOpennessWhitelistManager.exe --pipe-only"`
+
+**Manage the service:**
+
+```powershell
+sc.exe stop TiaOpennessWhitelist     # Stop
+sc.exe delete TiaOpennessWhitelist   # Uninstall
+Get-Service TiaOpennessWhitelist     # Check status in PowerShell
+```
 
 ---
 
@@ -111,7 +162,7 @@ The `WhitelistTiaOpennessApp` tool becomes available to the agent with two param
 | Parameter | Type | Example | Description |
 |---|---|---|---|
 | `executablePath` | `string` | `C:\MyApp\bin\MyApp.exe` | Absolute path to the executable |
-| `tiaVersion` | `string` | `18.0` | TIA Portal version (`≥ 21.0` uses the new `AllowList` path) |
+| `tiaVersion` | `string` | `21.0` | TIA Portal version (`≥ 21.0` uses the new `AllowList` path) |
 
 ### Option 2 — Visual Studio Post-Build Event
 
@@ -120,7 +171,7 @@ The `WhitelistTiaOpennessApp` tool becomes available to the agent with two param
 
 ```xml
 <Target Name="WhitelistForTIA" AfterTargets="Build">
-  <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(ProjectDir)whitelist-postbuild.ps1&quot; -ExecutablePath &quot;$(TargetPath)&quot; -TiaVersion &quot;18.0&quot;" />
+  <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;C:\Tools\whitelist-postbuild.ps1&quot; -ExecutablePath &quot;$(TargetPath)&quot; -TiaVersion &quot;21.0&quot;" />
 </Target>
 ```
 
@@ -132,7 +183,7 @@ Connect to `\\.\pipe\TiaOpennessWhitelistPipe` and send two newline-delimited UT
 
 ```
 C:\MyApp\bin\MyApp.exe
-18.0
+21.0
 ```
 
 Read back one line: `Success: ...` or `Error: ...`.
