@@ -118,7 +118,7 @@ sc.exe create TiaOpennessWhitelist `
     DisplayName= "TIA Openness Whitelist Manager"
 
 # (Optional) Start parameters
-    binPath= "C:\Tools\TiaOpennessWhitelistManager.exe --"
+    binPath= "C:\Tools\TiaOpennessWhitelistManager.exe --pipe-only"
 # (Optional) Add a description
 sc.exe description TiaOpennessWhitelist "Automatically whitelists executables for Siemens TIA Portal Openness API access."
 
@@ -244,7 +244,7 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 
 <div align="center">
 
-**If this project saves you from manual registry editing, consider giving it a ⭐**
+**If this project saves you from manual accepting each new build, consider giving it a ⭐**
 
 Made with ❤️ for the TIA Portal automation community
 
